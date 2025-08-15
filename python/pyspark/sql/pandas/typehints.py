@@ -27,6 +27,7 @@ if TYPE_CHECKING:
         PandasGroupedAggUDFType,
         ArrowScalarUDFType,
         ArrowScalarIterUDFType,
+        ArrowGroupedAggUDFType,
     )
 
 
@@ -38,6 +39,7 @@ def infer_eval_type(
     "PandasGroupedAggUDFType",
     "ArrowScalarUDFType",
     "ArrowScalarIterUDFType",
+    "ArrowGroupedAggUDFType",
 ]:
     """
     Infers the evaluation type in :class:`pyspark.util.PythonEvalType` from
@@ -85,10 +87,7 @@ def infer_eval_type(
     ) and (return_annotation == pd.Series or return_annotation == pd.DataFrame)
 
     # pa.Array, ... -> pa.Array
-    is_arrow_array = all(
-        a == pa.Array or check_union_annotation(a, parameter_check_func=lambda na: na == pa.Array)
-        for a in parameters_sig
-    ) and (return_annotation == pa.Array)
+    is_arrow_array = all(a == pa.Array for a in parameters_sig) and (return_annotation == pa.Array)
 
     # Iterator[Tuple[Series, Frame or Union[DataFrame, Series], ...] -> Iterator[Series or Frame]
     is_iterator_tuple_series_or_frame = (
@@ -175,6 +174,13 @@ def infer_eval_type(
         and not check_tuple_annotation(return_annotation)
     )
 
+    # pa.Array, ... -> Any
+    is_array_agg = all(a == pa.Array for a in parameters_sig) and (
+        return_annotation != pa.Array
+        and not check_iterator_annotation(return_annotation)
+        and not check_tuple_annotation(return_annotation)
+    )
+
     if is_series_or_frame:
         return PandasUDFType.SCALAR
     elif is_arrow_array:
@@ -185,6 +191,8 @@ def infer_eval_type(
         return ArrowUDFType.SCALAR_ITER
     elif is_series_or_frame_agg:
         return PandasUDFType.GROUPED_AGG
+    elif is_array_agg:
+        return ArrowUDFType.GROUPED_AGG
     else:
         raise PySparkNotImplementedError(
             errorClass="UNSUPPORTED_SIGNATURE",
